@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 import { useEffect, useState } from "react";
 import { supabase, type Property, type Tenant } from "@/lib/supabase";
 import { formatCurrency, formatDate } from "@/lib/format";
-import { Users, Mail, Phone, Calendar, FileText, X, Copy, Check } from "lucide-react";
+import { Users, Mail, Phone, Calendar, FileText, X, Copy, Check, Pencil, Trash2 } from "lucide-react";
 
 type TenantWithProperty = Tenant & { property: Property };
 
@@ -148,29 +148,62 @@ export default function TenantsPage() {
   const [savedComms, setSavedComms] = useState<Record<string, CommunicationLog[]>>({});
   const [draftEmails, setDraftEmails] = useState<Record<string, DraftEmail[]>>({});
 
+  // Edit state
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editData, setEditData] = useState<Partial<Tenant>>({});
+
   useEffect(() => {
-    async function load() {
-      const [propRes, tenantRes] = await Promise.all([
-        supabase.from("properties").select("*"),
-        supabase.from("tenants").select("*").eq("is_active", true).order("name"),
-      ]);
-
-      const properties = propRes.data || [];
-      const rawTenants = tenantRes.data || [];
-
-      const enriched: TenantWithProperty[] = rawTenants
-        .map((t) => {
-          const property = properties.find((p) => p.id === t.property_id);
-          if (!property) return null;
-          return { ...t, property };
-        })
-        .filter(Boolean) as TenantWithProperty[];
-
-      setTenants(enriched);
-      setLoading(false);
-    }
-    load();
+    loadTenants();
   }, []);
+
+  async function loadTenants() {
+    const [propRes, tenantRes] = await Promise.all([
+      supabase.from("properties").select("*"),
+      supabase.from("tenants").select("*").eq("is_active", true).order("name"),
+    ]);
+
+    const properties = propRes.data || [];
+    const rawTenants = tenantRes.data || [];
+
+    const enriched: TenantWithProperty[] = rawTenants
+      .map((t) => {
+        const property = properties.find((p) => p.id === t.property_id);
+        if (!property) return null;
+        return { ...t, property };
+      })
+      .filter(Boolean) as TenantWithProperty[];
+
+    setTenants(enriched);
+    setLoading(false);
+  }
+
+  function startEdit(tenant: TenantWithProperty) {
+    setEditData({ ...tenant });
+    setEditingId(tenant.id);
+  }
+
+  async function saveEdit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!editingId) return;
+    await supabase.from("tenants").update({
+      name: editData.name,
+      email: editData.email || null,
+      phone: editData.phone || null,
+      monthly_rent: editData.monthly_rent ?? null,
+      lease_start: editData.lease_start || null,
+      lease_end: editData.lease_end || null,
+      security_deposit: editData.security_deposit ?? null,
+    }).eq("id", editingId);
+    setEditingId(null);
+    setEditData({});
+    loadTenants();
+  }
+
+  async function deleteTenant(tenantId: string) {
+    if (!window.confirm("Remove this tenant?")) return;
+    await supabase.from("tenants").delete().eq("id", tenantId);
+    loadTenants();
+  }
 
   function openDraftEmail(tenant: TenantWithProperty) {
     setDraftModal({
@@ -278,6 +311,82 @@ export default function TenantsPage() {
             const tenantComms = savedComms[tenant.id] || [];
             const tenantDrafts = draftEmails[tenant.id] || [];
 
+            if (editingId === tenant.id) {
+              return (
+                <div key={tenant.id} className="bg-bg-card border border-border rounded-xl p-5">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="font-semibold">Edit Tenant</h3>
+                    <button onClick={() => setEditingId(null)} className="text-text-muted hover:text-text-primary">
+                      <X size={18} />
+                    </button>
+                  </div>
+                  <form onSubmit={saveEdit} className="space-y-3">
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-xs text-text-muted mb-1">Name</label>
+                        <input
+                          required
+                          value={editData.name || ""}
+                          onChange={e => setEditData(d => ({ ...d, name: e.target.value }))}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-text-muted mb-1">Email</label>
+                        <input
+                          type="email"
+                          value={editData.email || ""}
+                          onChange={e => setEditData(d => ({ ...d, email: e.target.value }))}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-text-muted mb-1">Phone</label>
+                        <input
+                          value={editData.phone || ""}
+                          onChange={e => setEditData(d => ({ ...d, phone: e.target.value }))}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-text-muted mb-1">Monthly Rent</label>
+                        <input
+                          type="number"
+                          value={editData.monthly_rent ?? ""}
+                          onChange={e => setEditData(d => ({ ...d, monthly_rent: e.target.value ? Number(e.target.value) : null }))}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-text-muted mb-1">Lease Start</label>
+                        <input
+                          type="date"
+                          value={editData.lease_start || ""}
+                          onChange={e => setEditData(d => ({ ...d, lease_start: e.target.value || null }))}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-text-muted mb-1">Lease End</label>
+                        <input
+                          type="date"
+                          value={editData.lease_end || ""}
+                          onChange={e => setEditData(d => ({ ...d, lease_end: e.target.value || null }))}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-text-muted mb-1">Security Deposit</label>
+                        <input
+                          type="number"
+                          value={editData.security_deposit ?? ""}
+                          onChange={e => setEditData(d => ({ ...d, security_deposit: e.target.value ? Number(e.target.value) : null }))}
+                        />
+                      </div>
+                    </div>
+                    <div className="flex justify-end gap-2 pt-2">
+                      <button type="button" onClick={() => setEditingId(null)} className="px-3 py-1.5 text-xs text-text-secondary border border-border rounded-lg hover:bg-bg-card-hover transition-colors">Cancel</button>
+                      <button type="submit" className="px-3 py-1.5 text-xs bg-accent-blue text-white rounded-lg hover:bg-blue-600 transition-colors">Save Changes</button>
+                    </div>
+                  </form>
+                </div>
+              );
+            }
+
             return (
               <div key={tenant.id} className="bg-bg-card border border-border rounded-xl p-5">
                 {/* Tenant Header */}
@@ -296,9 +405,25 @@ export default function TenantsPage() {
                       <p className="text-xs text-text-muted">{tenant.property.name}</p>
                     </div>
                   </div>
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-accent-green/15 text-accent-green">
-                    Active
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-accent-green/15 text-accent-green">
+                      Active
+                    </span>
+                    <button
+                      onClick={() => startEdit(tenant)}
+                      className="p-1.5 rounded-lg border border-border text-text-muted hover:text-accent-blue hover:border-accent-blue/40 transition-colors"
+                      title="Edit tenant"
+                    >
+                      <Pencil size={13} />
+                    </button>
+                    <button
+                      onClick={() => deleteTenant(tenant.id)}
+                      className="p-1.5 rounded-lg border border-border text-text-muted hover:text-accent-red hover:border-accent-red/40 transition-colors"
+                      title="Delete tenant"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
                 </div>
 
                 {/* Tenant Details Grid */}
@@ -373,7 +498,7 @@ export default function TenantsPage() {
                       {tenantDrafts.map((d, i) => (
                         <div key={i} className="bg-bg-secondary rounded-lg p-3 text-xs">
                           <p className="font-medium text-text-secondary">
-                            To: {d.to} — {d.subject}
+                            To: {d.to} -- {d.subject}
                           </p>
                           <p className="text-text-muted mt-1 line-clamp-2 whitespace-pre-wrap">{d.body}</p>
                         </div>
@@ -392,7 +517,7 @@ export default function TenantsPage() {
                       {tenantComms.map((c, i) => (
                         <div key={i} className="bg-bg-secondary rounded-lg p-3 text-xs">
                           <p className="font-medium text-text-secondary">
-                            {commTypeLabel(c.type)} — {formatDate(c.date)}
+                            {commTypeLabel(c.type)} -- {formatDate(c.date)}
                           </p>
                           <p className="text-text-muted mt-1">{c.notes}</p>
                         </div>
@@ -471,7 +596,7 @@ export default function TenantsPage() {
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-bg-card border border-border rounded-xl w-full max-w-md shadow-xl">
             <div className="flex items-center justify-between p-5 border-b border-border">
-              <h2 className="font-semibold">Log Communication — {commModal.tenant.name}</h2>
+              <h2 className="font-semibold">Log Communication -- {commModal.tenant.name}</h2>
               <button onClick={() => setCommModal(null)} className="text-text-muted hover:text-text-primary">
                 <X size={20} />
               </button>
