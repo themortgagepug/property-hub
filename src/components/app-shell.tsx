@@ -9,6 +9,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isLoginPage = pathname === "/login";
 
+  // Show loading while auth resolves
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-bg-primary">
@@ -17,10 +18,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (!user || isLoginPage) {
+  // Login page: render without sidebar
+  if (isLoginPage) {
     return <>{children}</>;
   }
 
+  // Not logged in and not on login page: show nothing (AuthProvider will redirect)
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-bg-primary">
+        <div className="text-text-muted text-sm">Redirecting...</div>
+      </div>
+    );
+  }
+
+  // Authenticated: render with sidebar
   return (
     <div className="flex min-h-screen">
       <Sidebar />
