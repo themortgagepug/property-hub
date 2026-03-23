@@ -1,5 +1,7 @@
 "use client";
 
+export const dynamic = "force-dynamic";
+
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase, type Property, type Obligation, type Tenant, type Transaction, type Mortgage } from "@/lib/supabase";

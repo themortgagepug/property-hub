@@ -1,5 +1,7 @@
 "use client";
 
+export const dynamic = "force-dynamic";
+
 import { useEffect, useState } from "react";
 import { supabase, type Property, type Transaction, type Budget } from "@/lib/supabase";
 import { formatCurrency, formatCurrencyFull, formatDate, categoryLabel } from "@/lib/format";
