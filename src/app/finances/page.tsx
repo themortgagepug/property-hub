@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 import { useEffect, useState } from "react";
 import { supabase, type Property, type Transaction, type Budget } from "@/lib/supabase";
 import { formatCurrency, formatCurrencyFull, formatDate, categoryLabel } from "@/lib/format";
-import { DollarSign, Plus, X, TrendingUp, TrendingDown } from "lucide-react";
+import { DollarSign, Plus, X, TrendingUp, TrendingDown, Target, ChevronDown, ChevronUp } from "lucide-react";
 
 export default function FinancesPage() {
   const [properties, setProperties] = useState<Property[]>([]);
@@ -13,8 +13,16 @@ export default function FinancesPage() {
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [showBudgetForm, setShowBudgetForm] = useState(false);
   const [filter, setFilter] = useState<"all" | "income" | "expense">("all");
   const [propertyFilter, setPropertyFilter] = useState("all");
+  const [budgetPropertyFilter, setBudgetPropertyFilter] = useState("all");
+  const [budgetForm, setBudgetForm] = useState({
+    property_id: "",
+    category: "maintenance",
+    annual_budget: "",
+    notes: "",
+  });
 
   useEffect(() => {
     async function load() {
@@ -47,6 +55,39 @@ export default function FinancesPage() {
     const { data } = await supabase.from("transactions").select("*").order("date", { ascending: false }).limit(100);
     setTransactions(data || []);
   }
+
+  const currentYear = new Date().getFullYear();
+
+  async function addBudget(e: React.FormEvent) {
+    e.preventDefault();
+    const annualBudget = Number(budgetForm.annual_budget);
+    await supabase.from("budgets").upsert({
+      property_id: budgetForm.property_id || properties[0]?.id,
+      category: budgetForm.category,
+      year: currentYear,
+      annual_budget: annualBudget,
+      monthly_budget: Math.round(annualBudget / 12),
+      notes: budgetForm.notes || null,
+    }, { onConflict: "property_id,category,year" });
+    setShowBudgetForm(false);
+    setBudgetForm({ property_id: "", category: "maintenance", annual_budget: "", notes: "" });
+    const { data } = await supabase.from("budgets").select("*").eq("year", currentYear);
+    setBudgets(data || []);
+  }
+
+  // Compute actual spend per property+category for current year
+  const yearTransactions = transactions.filter(tx => tx.date.startsWith(String(currentYear)));
+  const actualSpend: Record<string, number> = {};
+  yearTransactions.forEach(tx => {
+    if (tx.type === "expense") {
+      const key = `${tx.property_id}__${tx.category}`;
+      actualSpend[key] = (actualSpend[key] || 0) + tx.amount;
+    }
+  });
+
+  const filteredBudgets = budgets.filter(b =>
+    budgetPropertyFilter === "all" || b.property_id === budgetPropertyFilter
+  );
 
   const filtered = transactions.filter(tx => {
     if (filter !== "all" && tx.type !== filter) return false;
@@ -212,6 +253,157 @@ export default function FinancesPage() {
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+      </div>
+
+      {/* Budgets Section */}
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Target size={18} className="text-accent-blue" />
+            <h2 className="text-lg font-semibold">Budgets {currentYear}</h2>
+          </div>
+          <div className="flex items-center gap-3">
+            <select
+              value={budgetPropertyFilter}
+              onChange={e => setBudgetPropertyFilter(e.target.value)}
+              className="w-auto text-sm"
+            >
+              <option value="all">All properties</option>
+              {properties.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+            <button
+              onClick={() => setShowBudgetForm(!showBudgetForm)}
+              className="inline-flex items-center gap-2 px-3 py-2 bg-accent-blue text-white rounded-lg text-sm font-medium hover:bg-blue-600 transition-colors"
+            >
+              <Plus size={15} /> Add Budget
+            </button>
+          </div>
+        </div>
+
+        {showBudgetForm && (
+          <div className="bg-bg-card border border-border rounded-xl p-5 mb-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-medium text-sm">Add / Update Budget</h3>
+              <button onClick={() => setShowBudgetForm(false)} className="text-text-muted hover:text-text-primary"><X size={18} /></button>
+            </div>
+            <form onSubmit={addBudget} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs text-text-muted mb-1">Property</label>
+                <select
+                  required
+                  value={budgetForm.property_id}
+                  onChange={e => setBudgetForm(f => ({ ...f, property_id: e.target.value }))}
+                >
+                  <option value="">Select property</option>
+                  {properties.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-text-muted mb-1">Category</label>
+                <select
+                  value={budgetForm.category}
+                  onChange={e => setBudgetForm(f => ({ ...f, category: e.target.value }))}
+                >
+                  <option value="property_tax">Property Tax</option>
+                  <option value="strata_fee">Strata Fee</option>
+                  <option value="insurance">Insurance</option>
+                  <option value="mortgage">Mortgage</option>
+                  <option value="utilities">Utilities</option>
+                  <option value="maintenance">Maintenance</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-text-muted mb-1">Annual Budget ($)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  required
+                  placeholder="5000.00"
+                  value={budgetForm.annual_budget}
+                  onChange={e => setBudgetForm(f => ({ ...f, annual_budget: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-text-muted mb-1">Notes</label>
+                <input
+                  placeholder="Optional notes"
+                  value={budgetForm.notes}
+                  onChange={e => setBudgetForm(f => ({ ...f, notes: e.target.value }))}
+                />
+              </div>
+              <div className="md:col-span-2 flex justify-end gap-3 mt-1">
+                <button type="button" onClick={() => setShowBudgetForm(false)} className="px-4 py-2 text-sm text-text-secondary border border-border rounded-lg hover:bg-bg-card-hover">Cancel</button>
+                <button type="submit" className="px-4 py-2 bg-accent-blue text-white rounded-lg text-sm font-medium hover:bg-blue-600">Save Budget</button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {filteredBudgets.length === 0 ? (
+          <div className="bg-bg-card border border-border rounded-xl p-8 text-center text-text-muted text-sm">
+            No budgets set for {currentYear}. Add one above.
+          </div>
+        ) : (
+          <div className="bg-bg-card border border-border rounded-xl overflow-hidden">
+            <div className="overflow-x-auto">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Property</th>
+                    <th>Category</th>
+                    <th className="text-right">Annual Budget</th>
+                    <th className="text-right">Actual Spend</th>
+                    <th className="text-right">Remaining</th>
+                    <th>Progress</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredBudgets.map(b => {
+                    const prop = properties.find(p => p.id === b.property_id);
+                    const key = `${b.property_id}__${b.category}`;
+                    const spent = actualSpend[key] || 0;
+                    const annual = b.annual_budget || 0;
+                    const remaining = annual - spent;
+                    const pct = annual > 0 ? Math.min(100, Math.round((spent / annual) * 100)) : 0;
+                    const overBudget = spent > annual && annual > 0;
+                    return (
+                      <tr key={b.id} className="hover:bg-bg-card-hover transition-colors">
+                        <td className="text-text-muted">{prop?.name || "--"}</td>
+                        <td>
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-bg-secondary text-text-secondary">
+                            {categoryLabel(b.category)}
+                          </span>
+                        </td>
+                        <td className="text-right font-medium">{formatCurrency(annual)}</td>
+                        <td className={`text-right font-medium ${overBudget ? "text-accent-red" : "text-text-primary"}`}>
+                          {formatCurrency(spent)}
+                        </td>
+                        <td className={`text-right font-medium ${remaining < 0 ? "text-accent-red" : remaining < annual * 0.1 ? "text-accent-orange" : "text-accent-green"}`}>
+                          {remaining < 0 ? `-${formatCurrency(Math.abs(remaining))}` : formatCurrency(remaining)}
+                        </td>
+                        <td className="min-w-[120px]">
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 h-1.5 rounded-full bg-border overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all ${overBudget ? "bg-accent-red" : pct > 80 ? "bg-accent-orange" : "bg-accent-blue"}`}
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                            <span className={`text-xs font-medium w-9 text-right ${overBudget ? "text-accent-red" : "text-text-muted"}`}>
+                              {pct}%
+                            </span>
+                          </div>
+                          {b.notes && <p className="text-xs text-text-muted mt-0.5">{b.notes}</p>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </div>
