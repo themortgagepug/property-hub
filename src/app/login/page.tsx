@@ -4,14 +4,12 @@ export const dynamic = "force-dynamic";
 
 import { useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { useRouter } from "next/navigation";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -23,14 +21,15 @@ export default function LoginPage() {
     if (error) {
       setError(error.message);
       setLoading(false);
+    } else {
+      // Force a full page reload to pick up the auth cookie
+      window.location.href = "/";
     }
-    // On success, the AuthProvider's onAuthStateChange listener
-    // will detect the new session and redirect to "/"
   }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-bg-primary">
-      <div className="w-full max-w-sm">
+      <div className="w-full max-w-sm px-4">
         <div className="text-center mb-8">
           <h1 className="text-2xl font-bold text-text-primary">Property Hub</h1>
           <p className="text-text-muted text-sm mt-1">McFadyen Portfolio</p>
