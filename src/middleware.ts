@@ -1,16 +1,15 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-export function proxy(request: NextRequest) {
+export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Allow login page and static assets through
-  if (pathname === "/login") {
+  // Allow login page, API routes, and static assets through
+  if (pathname === "/login" || pathname.startsWith("/api/")) {
     return NextResponse.next();
   }
 
   // Check for Supabase auth token in cookies
-  // Supabase stores session in sb-<ref>-auth-token cookie
   const hasCookie = request.cookies.getAll().some(
     (c) => c.name.includes("sb-") && c.name.includes("auth-token")
   );

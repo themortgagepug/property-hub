@@ -23,9 +23,9 @@ export default function LoginPage() {
     if (error) {
       setError(error.message);
       setLoading(false);
-    } else {
-      router.replace("/");
     }
+    // On success, the AuthProvider's onAuthStateChange listener
+    // will detect the new session and redirect to "/"
   }
 
   return (
