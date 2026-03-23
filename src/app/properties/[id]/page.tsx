@@ -4,9 +4,9 @@ export const dynamic = "force-dynamic";
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { supabase, type Property, type Obligation, type Tenant, type Transaction, type Mortgage } from "@/lib/supabase";
+import { supabase, type Property, type Obligation, type Tenant, type Transaction, type Mortgage, type Unit } from "@/lib/supabase";
 import { formatCurrency, formatCurrencyFull, formatDate, daysUntil, urgencyColor, categoryLabel, propertyTypeLabel } from "@/lib/format";
-import { Building2, MapPin, Users, DollarSign, FileText, Plus, X, ArrowLeft, Pencil, Trash2 } from "lucide-react";
+import { Building2, MapPin, Users, DollarSign, FileText, Plus, X, ArrowLeft, Pencil, Trash2, Home, CheckCircle2, XCircle } from "lucide-react";
 import Link from "next/link";
 
 export default function PropertyDetailPage() {
@@ -16,11 +16,15 @@ export default function PropertyDetailPage() {
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [mortgage, setMortgage] = useState<Mortgage | null>(null);
+  const [units, setUnits] = useState<Unit[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Add forms
   const [showObForm, setShowObForm] = useState(false);
   const [showTenantForm, setShowTenantForm] = useState(false);
+  const [showUnitForm, setShowUnitForm] = useState(false);
+  const [editingUnitId, setEditingUnitId] = useState<string | null>(null);
+  const [unitEditData, setUnitEditData] = useState<Partial<Unit>>({});
 
   // Edit states
   const [editingObId, setEditingObId] = useState<string | null>(null);
@@ -37,18 +41,20 @@ export default function PropertyDetailPage() {
   useEffect(() => {
     if (!id) return;
     async function load() {
-      const [propRes, oblRes, tenRes, txRes, mortRes] = await Promise.all([
+      const [propRes, oblRes, tenRes, txRes, mortRes, unitRes] = await Promise.all([
         supabase.from("properties").select("*").eq("id", id).single(),
         supabase.from("obligations").select("*").eq("property_id", id).eq("is_active", true).order("due_date"),
         supabase.from("tenants").select("*").eq("property_id", id).eq("is_active", true),
         supabase.from("transactions").select("*").eq("property_id", id).order("date", { ascending: false }).limit(20),
         supabase.from("mortgages").select("*").eq("property_id", id).limit(1),
+        supabase.from("units").select("*").eq("property_id", id).order("created_at"),
       ]);
       setProperty(propRes.data);
       setObligations(oblRes.data || []);
       setTenants(tenRes.data || []);
       setTransactions(txRes.data || []);
       setMortgage(mortRes.data?.[0] || null);
+      setUnits(unitRes.data || []);
       setLoading(false);
     }
     load();
@@ -72,6 +78,52 @@ export default function PropertyDetailPage() {
   async function reloadMortgage() {
     const { data } = await supabase.from("mortgages").select("*").eq("property_id", id).limit(1);
     setMortgage(data?.[0] || null);
+  }
+
+  async function reloadUnits() {
+    const { data } = await supabase.from("units").select("*").eq("property_id", id).order("created_at");
+    setUnits(data || []);
+  }
+
+  async function addUnit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const form = new FormData(e.currentTarget);
+    await supabase.from("units").insert({
+      property_id: id,
+      name: form.get("name"),
+      is_rented: form.get("is_rented") === "true",
+      current_rent: form.get("current_rent") ? Number(form.get("current_rent")) : null,
+      tenant_name: form.get("tenant_name") || null,
+      tenant_email: form.get("tenant_email") || null,
+      tenant_phone: form.get("tenant_phone") || null,
+      lease_start: form.get("lease_start") || null,
+      lease_end: form.get("lease_end") || null,
+      notes: form.get("notes") || null,
+    });
+    setShowUnitForm(false);
+    reloadUnits();
+  }
+
+  async function updateUnit(unitId: string) {
+    const { name, is_rented, current_rent, tenant_name, tenant_email, tenant_phone, lease_start, lease_end, notes } = unitEditData;
+    await supabase.from("units").update({
+      name, is_rented,
+      current_rent: current_rent ? Number(current_rent) : null,
+      tenant_name: tenant_name || null,
+      tenant_email: tenant_email || null,
+      tenant_phone: tenant_phone || null,
+      lease_start: lease_start || null,
+      lease_end: lease_end || null,
+      notes: notes || null,
+    }).eq("id", unitId);
+    setEditingUnitId(null);
+    reloadUnits();
+  }
+
+  async function deleteUnit(unitId: string) {
+    if (!window.confirm("Delete this unit?")) return;
+    await supabase.from("units").delete().eq("id", unitId);
+    reloadUnits();
   }
 
   // Obligations
@@ -249,7 +301,9 @@ export default function PropertyDetailPage() {
 
   const monthlyObs = obligations.filter(o => o.frequency === "monthly");
   const totalMonthly = monthlyObs.reduce((s, o) => s + (o.amount || 0), 0);
-  const totalRent = tenants.reduce((s, t) => s + (t.monthly_rent || 0), 0);
+  const totalRent = units.filter(u => u.is_rented).reduce((s, u) => s + (u.current_rent || 0), 0);
+  const rentedUnits = units.filter(u => u.is_rented).length;
+  const vacantUnits = units.filter(u => !u.is_rented).length;
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
@@ -409,28 +463,32 @@ export default function PropertyDetailPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mt-6">
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mt-6">
             <div>
               <p className="text-xs text-text-muted">Current Value</p>
               <p className="text-lg font-bold">{formatCurrency(property.current_value)}</p>
             </div>
             <div>
-              <p className="text-xs text-text-muted">Purchase Price</p>
-              <p className="text-lg font-bold">{formatCurrency(property.purchase_price)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-text-muted">Monthly Costs</p>
-              <p className="text-lg font-bold text-accent-red">{formatCurrency(totalMonthly)}</p>
+              <p className="text-xs text-text-muted">Units</p>
+              <p className="text-lg font-bold">{units.length} <span className="text-sm font-normal text-text-muted">({rentedUnits} rented{vacantUnits > 0 ? `, ${vacantUnits} vacant` : ""})</span></p>
             </div>
             <div>
               <p className="text-xs text-text-muted">Monthly Rent</p>
               <p className="text-lg font-bold text-accent-green">{formatCurrency(totalRent)}</p>
             </div>
             <div>
+              <p className="text-xs text-text-muted">Monthly Costs</p>
+              <p className="text-lg font-bold text-accent-red">{formatCurrency(totalMonthly)}</p>
+            </div>
+            <div>
               <p className="text-xs text-text-muted">Net Monthly</p>
               <p className={`text-lg font-bold ${totalRent - totalMonthly >= 0 ? "text-accent-green" : "text-accent-red"}`}>
                 {formatCurrency(totalRent - totalMonthly)}
               </p>
+            </div>
+            <div>
+              <p className="text-xs text-text-muted">Purchase Price</p>
+              <p className="text-lg font-bold">{formatCurrency(property.purchase_price)}</p>
             </div>
           </div>
 
@@ -439,6 +497,174 @@ export default function PropertyDetailPage() {
           )}
         </div>
       )}
+
+      {/* Units */}
+      <div className="bg-bg-card border border-border rounded-xl">
+        <div className="flex items-center justify-between p-5 border-b border-border">
+          <h2 className="font-semibold flex items-center gap-2">
+            <Home size={18} className="text-accent-purple" />
+            Units ({units.length})
+          </h2>
+          <button onClick={() => setShowUnitForm(true)} className="text-xs text-accent-blue hover:underline flex items-center gap-1">
+            <Plus size={14} /> Add Unit
+          </button>
+        </div>
+
+        {showUnitForm && (
+          <div className="p-5 border-b border-border">
+            <form onSubmit={addUnit} className="space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs text-text-muted mb-1">Unit Name</label>
+                  <input name="name" required placeholder="e.g. Main Unit, Basement Suite" />
+                </div>
+                <div>
+                  <label className="block text-xs text-text-muted mb-1">Rented?</label>
+                  <select name="is_rented">
+                    <option value="true">Yes - Rented</option>
+                    <option value="false">No - Vacant</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-text-muted mb-1">Current Rent</label>
+                  <input name="current_rent" type="number" step="0.01" placeholder="2000" />
+                </div>
+                <div>
+                  <label className="block text-xs text-text-muted mb-1">Tenant Name</label>
+                  <input name="tenant_name" placeholder="Tenant name" />
+                </div>
+                <div>
+                  <label className="block text-xs text-text-muted mb-1">Tenant Email</label>
+                  <input name="tenant_email" type="email" placeholder="tenant@email.com" />
+                </div>
+                <div>
+                  <label className="block text-xs text-text-muted mb-1">Tenant Phone</label>
+                  <input name="tenant_phone" placeholder="604-555-0123" />
+                </div>
+                <div>
+                  <label className="block text-xs text-text-muted mb-1">Lease Start</label>
+                  <input name="lease_start" type="date" />
+                </div>
+                <div>
+                  <label className="block text-xs text-text-muted mb-1">Lease End</label>
+                  <input name="lease_end" type="date" />
+                </div>
+                <div>
+                  <label className="block text-xs text-text-muted mb-1">Notes</label>
+                  <input name="notes" placeholder="Optional notes" />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2">
+                <button type="button" onClick={() => setShowUnitForm(false)} className="px-3 py-1.5 text-xs text-text-secondary border border-border rounded-lg">Cancel</button>
+                <button type="submit" className="px-3 py-1.5 text-xs bg-accent-blue text-white rounded-lg">Add Unit</button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        <div className="divide-y divide-border">
+          {units.length === 0 ? (
+            <div className="p-6 text-center text-text-muted text-sm">No units added yet. Add units to track occupancy and rent.</div>
+          ) : (
+            units.map(unit => {
+              if (editingUnitId === unit.id) {
+                return (
+                  <div key={unit.id} className="p-5">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-xs text-text-muted mb-1">Unit Name</label>
+                        <input value={unitEditData.name || ""} onChange={e => setUnitEditData({...unitEditData, name: e.target.value})} />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-text-muted mb-1">Rented?</label>
+                        <select value={unitEditData.is_rented ? "true" : "false"} onChange={e => setUnitEditData({...unitEditData, is_rented: e.target.value === "true"})}>
+                          <option value="true">Yes - Rented</option>
+                          <option value="false">No - Vacant</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-text-muted mb-1">Current Rent</label>
+                        <input type="number" step="0.01" value={unitEditData.current_rent || ""} onChange={e => setUnitEditData({...unitEditData, current_rent: e.target.value ? Number(e.target.value) : null})} />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-text-muted mb-1">Tenant Name</label>
+                        <input value={unitEditData.tenant_name || ""} onChange={e => setUnitEditData({...unitEditData, tenant_name: e.target.value})} />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-text-muted mb-1">Tenant Email</label>
+                        <input type="email" value={unitEditData.tenant_email || ""} onChange={e => setUnitEditData({...unitEditData, tenant_email: e.target.value})} />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-text-muted mb-1">Tenant Phone</label>
+                        <input value={unitEditData.tenant_phone || ""} onChange={e => setUnitEditData({...unitEditData, tenant_phone: e.target.value})} />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-text-muted mb-1">Lease Start</label>
+                        <input type="date" value={unitEditData.lease_start || ""} onChange={e => setUnitEditData({...unitEditData, lease_start: e.target.value})} />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-text-muted mb-1">Lease End</label>
+                        <input type="date" value={unitEditData.lease_end || ""} onChange={e => setUnitEditData({...unitEditData, lease_end: e.target.value})} />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-text-muted mb-1">Notes</label>
+                        <input value={unitEditData.notes || ""} onChange={e => setUnitEditData({...unitEditData, notes: e.target.value})} />
+                      </div>
+                    </div>
+                    <div className="flex justify-end gap-2 mt-3">
+                      <button onClick={() => setEditingUnitId(null)} className="px-3 py-1.5 text-xs text-text-secondary border border-border rounded-lg">Cancel</button>
+                      <button onClick={() => updateUnit(unit.id)} className="px-3 py-1.5 text-xs bg-accent-blue text-white rounded-lg">Save</button>
+                    </div>
+                  </div>
+                );
+              }
+              return (
+                <div key={unit.id} className="flex items-center justify-between px-5 py-3 group hover:bg-bg-card-hover transition-colors">
+                  <div className="flex items-center gap-3">
+                    {unit.is_rented ? (
+                      <CheckCircle2 size={16} className="text-accent-green shrink-0" />
+                    ) : (
+                      <XCircle size={16} className="text-accent-red shrink-0" />
+                    )}
+                    <div>
+                      <p className="text-sm font-medium">{unit.name}</p>
+                      <p className="text-xs text-text-muted">
+                        {unit.is_rented ? (
+                          <>
+                            {unit.tenant_name && <span>{unit.tenant_name}</span>}
+                            {unit.lease_end ? ` -- Lease ends ${formatDate(unit.lease_end)}` : unit.lease_start ? " -- Month-to-month" : ""}
+                          </>
+                        ) : (
+                          "Vacant"
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="text-right">
+                      {unit.is_rented && unit.current_rent ? (
+                        <p className="text-sm font-semibold text-accent-green">{formatCurrency(unit.current_rent)}/mo</p>
+                      ) : unit.is_rented ? (
+                        <p className="text-xs text-text-muted">Rent TBD</p>
+                      ) : (
+                        <p className="text-xs text-accent-red">No income</p>
+                      )}
+                    </div>
+                    <div className="hidden group-hover:flex items-center gap-1">
+                      <button onClick={() => { setEditingUnitId(unit.id); setUnitEditData(unit); }} className="p-1 rounded hover:bg-bg-secondary text-text-muted hover:text-accent-blue">
+                        <Pencil size={14} />
+                      </button>
+                      <button onClick={() => deleteUnit(unit.id)} className="p-1 rounded hover:bg-bg-secondary text-text-muted hover:text-accent-red">
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Obligations */}

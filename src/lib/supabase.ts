@@ -117,6 +117,22 @@ export type Document = {
   notes: string | null
 }
 
+export type Unit = {
+  id: string
+  property_id: string
+  name: string
+  is_rented: boolean
+  current_rent: number | null
+  tenant_name: string | null
+  tenant_email: string | null
+  tenant_phone: string | null
+  lease_start: string | null
+  lease_end: string | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
 export type Budget = {
   id: string
   property_id: string
