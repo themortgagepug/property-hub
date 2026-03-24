@@ -175,7 +175,7 @@ for RECIPIENT in "alex@getflowmortgage.ca" "sarahkmcfadyen@gmail.com"; do
   echo "  Sending to: $RECIPIENT"
 
   PAYLOAD=$(jq -n \
-    --arg from "Property Hub <onboarding@resend.dev>" \
+    --arg from "Property Hub <alex@getflowmortgage.ca>" \
     --arg to "$RECIPIENT" \
     --arg subject "Property Digest -- $DIGEST_DATE" \
     --arg html "$HTML" \
